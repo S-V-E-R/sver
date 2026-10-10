@@ -127,6 +127,10 @@ The page only reads. Every action happens on its own page.
 
 *Home and audit log as built (October 10, 2026):* `/admin` shows Take It Down open requests, any past the 48-hour deadline (as an alert) and the next deadline, open reports, appeals, copyright and integrity cases, emotes awaiting review, stuck jobs, live broadcasts and switched-off features. `/admin/audit` searches by staff member, action, target and date, newest first, read-only.
 
+## Raven's Eye (built October 10, 2026; `ravens_eye.rs`, migration 0083)
+
+Joe's direction: staff platform analytics, not legacy's trust-and-safety console (its device fingerprints and IP bans break the rule that no admin page shows a raw IP; reports, strikes, appeals and the audit log already replace the rest). `/admin/ravens-eye` (staff) shows sign-ups, signed-in viewers, watch hours and peak viewers (real Counted and Trusted sessions from the integrity snapshots), streamers live, broadcast hours, chat messages and follows over 7, 30 or 90 days, each with a trend line; money moved by ledger kind; top channels by watch hours; top categories by broadcast hours (the recording's category, else the channel's current one); and faction joins. Each finished UTC day is computed once and stored (`ravens_eye_days`, filled back 90 days on the first run), because chat expires after 7 days; today is computed live. No IP, device or personal data. ClickHouse waits until event volume needs it.
+
 ## Not carried over from legacy
 
 | Legacy | Rebuild |

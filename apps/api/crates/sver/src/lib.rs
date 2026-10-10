@@ -54,6 +54,7 @@ pub mod profile_jobs;
 pub mod profiles;
 pub mod progression;
 pub mod raids;
+pub mod ravens_eye;
 pub mod rename;
 pub mod reserved;
 pub mod restream;
@@ -459,6 +460,7 @@ pub fn router(app: App) -> Router {
         .merge(outside_emotes::routes())
         .merge(discord::routes())
         .merge(overlays::routes())
+        .merge(ravens_eye::routes())
         .merge(alerts::routes())
         .merge(raids::routes())
         .merge(discovery::routes())
