@@ -46,9 +46,9 @@ async function sidebarLive(signedIn: boolean): Promise<LiveCard[]> {
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const account = await currentAccount();
-  const [alerts, live, progress, dms, site] = await Promise.all([account ? hasAlerts() : false, sidebarLive(!!account), account ? apiGet<{ xp: number; level: number; level_xp: number; next_xp: number | null }>("/api/me/progression").then(r => r.data) : null, account ? apiGet<{ unread: number }>("/api/dms/unread").then(r => r.data?.unread ?? 0) : 0, apiGet<{ banner: Banner | null }>("/api/site").then(r => r.data)]);
+  const [alerts, live, progress, dms, site] = await Promise.all([account ? hasAlerts() : false, sidebarLive(!!account), account ? apiGet<{ xp: number; level: number; level_xp: number; next_xp: number | null; title?: string; frame?: number }>("/api/me/progression").then(r => r.data) : null, account ? apiGet<{ unread: number }>("/api/dms/unread").then(r => r.data?.unread ?? 0) : 0, apiGet<{ banner: Banner | null }>("/api/site").then(r => r.data)]);
   // Level and XP bar on the player card (docs/PROGRESSION.md).
-  const xpBar = progress && <span className="player-card-xp" title={`${progress.xp.toLocaleString()} XP`}><span className="player-level">Lv {progress.level}</span><span className="xp-bar" aria-hidden="true"><span style={{ width: `${progress.next_xp ? Math.round(100 * (progress.xp - progress.level_xp) / (progress.next_xp - progress.level_xp)) : 100}%` }} /></span></span>;
+  const xpBar = progress && <span className="player-card-xp" title={`${progress.xp.toLocaleString()} XP`}><span className="player-level" data-frame={progress.frame ?? 0} title={progress.title}>Lv {progress.level}</span>{progress.title && <span className="player-title">{progress.title}</span>}<span className="xp-bar" aria-hidden="true"><span style={{ width: `${progress.next_xp ? Math.round(100 * (progress.xp - progress.level_xp) / (progress.next_xp - progress.level_xp)) : 100}%` }} /></span></span>;
   const initial = account?.username.slice(0, 1).toUpperCase();
 
   const faction = factionOf(account?.faction);

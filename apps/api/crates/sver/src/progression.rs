@@ -52,9 +52,57 @@ pub const LOYALTY: [(&str, i64); 5] = [
 pub fn loyalty(earned: i64) -> i16 {
     LOYALTY.iter().filter(|(_, at)| earned >= *at).count() as i16 - 1
 }
+/// Faction rank titles (docs/PROGRESSION.md section 2): the 22-rank ladder from the main S.V.E.R
+/// Discord, so the site and the server read the same. Columns: no faction, Myria, Aetheron, Glint.
+const TITLES: [[&str; 4]; 22] = [
+    ["Private", "Initiate", "Novice", "Spark"],
+    ["PFC", "Sentinel-II", "Seeker", "Flicker"],
+    ["Specialist", "Sentinel-I", "Scholar", "Kindle"],
+    ["Corporal", "Warblade", "Keeper", "Torch"],
+    ["Sergeant", "Sentinel", "Warden", "Ember"],
+    ["Staff Sgt", "Iron Guard", "High Warden", "Blazeborn"],
+    ["SFC", "Shield Wall", "Sage", "Firebrand"],
+    ["Master Sgt", "Warmaster", "Oracle", "Pyroclast"],
+    ["First Sgt", "Champion", "Seer", "Infernus"],
+    ["Sgt Major", "Grand Champ", "High Seer", "Magmus"],
+    ["Cmd Sgt Maj", "Warlord", "Luminary", "Vulcanis"],
+    ["2nd Lieutenant", "Blade Cmdr", "Arcanist", "Flamelord"],
+    ["1st Lieutenant", "War Cmdr", "High Arc", "Emberlord"],
+    ["Captain", "Vanguard", "Archon", "Blaze"],
+    ["Major", "High Van", "Magistrate", "Scorchwind"],
+    ["Lt Colonel", "Battlemaster", "Tribunal", "Ashbringer"],
+    ["Colonel", "Grand Battle", "High Trib", "Cataclysm"],
+    ["Brig General", "Siege Lord", "Consul", "Firestorm"],
+    ["Maj General", "High Siege", "Praetor", "Conflagra"],
+    ["Lt General", "Conquest", "Imperator", "Apocalypse"],
+    ["General", "Grand Conq", "High Imp", "Ragnarok"],
+    ["Commander", "Overlord", "Sovereign", "Inferno"],
+];
+/// The account level each title starts at: spread evenly from level 1 to 100.
+fn title_level(rank: usize) -> i64 {
+    1 + (rank as i64 * 99 + 10) / 21
+}
+/// The title for a level, in the faction's names (the base names without a faction).
+pub fn title(level: i64, faction: Option<&str>) -> &'static str {
+    let rank = (0..TITLES.len())
+        .rev()
+        .find(|r| level >= title_level(*r))
+        .unwrap_or(0);
+    let column = match faction {
+        Some("myria") => 1,
+        Some("aetheron") => 2,
+        Some("glint") => 3,
+        _ => 0,
+    };
+    TITLES[rank][column]
+}
+/// The level badge's frame (the level-up cosmetic, Joe's decision): a new frame every 10 levels.
+pub fn frame(level: i64) -> i64 {
+    level / 10
+}
 pub fn summary(xp: i64) -> Value {
     let level = level(xp);
-    json!({"xp": xp, "level": level, "level_xp": xp_for(level), "next_xp": (level < MAX_LEVEL).then(|| xp_for(level + 1))})
+    json!({"xp": xp, "level": level, "frame": frame(level), "level_xp": xp_for(level), "next_xp": (level < MAX_LEVEL).then(|| xp_for(level + 1))})
 }
 
 /// Each minute (with Engagement Valor's watch points): 10 XP a minute of Counted or Trusted
@@ -110,8 +158,12 @@ pub(crate) async fn chatted(tx: &mut PgConnection, user: &str) -> Res<()> {
 /// GET /api/me/progression: XP, level and the next level's threshold (the player card).
 async fn mine(State(app): State<App>, jar: CookieJar) -> Res<Json<Value>> {
     let user = profiles::signed_in(&app, &jar).await?;
-    let xp = total(&mut *app.db.acquire().await?, &user.id).await?;
-    Ok(Json(summary(xp)))
+    let mut db = app.db.acquire().await?;
+    let xp = total(&mut db, &user.id).await?;
+    let faction = crate::factions::membership(&mut db, &user.id).await?;
+    let mut value = summary(xp);
+    value["title"] = json!(title(level(xp), faction.as_deref()));
+    Ok(Json(value))
 }
 
 // ---- Daily orders (docs/PROGRESSION.md section 3) ----
@@ -146,6 +198,9 @@ pub const RARITY: [(&str, u32, f64); 5] = [
 ];
 /// XP for a Common order before the streak (Proposed).
 const ORDER_XP: f64 = 40.0;
+/// Engagement Valor an order pays by rarity (Joe's decision: 10–50, free, no cash value), in the
+/// channel the viewer was last in that day.
+const ORDER_EV: [i64; 5] = [10, 15, 20, 30, 50];
 /// Today's progress for order `o`, from the records each type names (UTC day).
 const PROGRESS: &str = "CASE o.kind
     WHEN 'watch' THEN coalesce((SELECT minutes FROM xp_days WHERE user_id=o.user_id AND day=o.day AND source='watch'),0)
@@ -260,6 +315,22 @@ async fn complete_orders(app: &App) -> Res<()> {
             ON CONFLICT DO NOTHING RETURNING orders")
             .bind(&user).fetch_all(&mut *tx).await?;
         xp += paid.iter().map(|m| *m as i32 * 10).sum::<i32>();
+        // ponytail: "where the order was done" = the channel of the latest playback or chat
+        // today; an order finished with no channel activity (only Beacons, say) pays XP only.
+        let channel: Option<String> = sqlx::query_scalar("SELECT a.channel FROM (
+                SELECT b.owner_id AS channel,l.expires_at AS at FROM playback_leases l JOIN broadcasts b ON b.id=l.broadcast_id WHERE l.viewer_key='u:'||$1 AND l.expires_at>=current_date
+                UNION ALL SELECT channel_id,created_at FROM chat_messages WHERE author_id=$1 AND channel_id IS NOT NULL AND created_at>=current_date
+            ) a WHERE a.channel<>$1 AND NOT EXISTS(SELECT 1 FROM channel_restrictions r WHERE r.channel_id=a.channel AND r.user_id=$1 AND r.kind='ban')
+            ORDER BY a.at DESC LIMIT 1")
+            .bind(&user).fetch_optional(&mut *tx).await?;
+        if let Some(channel) = &channel {
+            let ev = ORDER_EV[rarity as usize];
+            sqlx::query("INSERT INTO engagement(channel_id,user_id,balance,earned) VALUES($1,$2,$3,$3)
+                ON CONFLICT(channel_id,user_id) DO UPDATE SET balance=engagement.balance+$3, earned=engagement.earned+$3")
+                .bind(channel).bind(&user).bind(ev).execute(&mut *tx).await?;
+            sqlx::query("UPDATE daily_orders SET ev=$3,ev_channel=$4 WHERE user_id=$1 AND day=current_date AND slot=$2")
+                .bind(&user).bind(slot).bind(ev as i32).bind(channel).execute(&mut *tx).await?;
+        }
         sqlx::query("INSERT INTO xp_days(user_id,day,source,xp) VALUES($1,current_date,'orders',$2)
             ON CONFLICT(user_id,day,source) DO UPDATE SET xp=xp_days.xp+EXCLUDED.xp,updated_at=now()")
             .bind(&user).bind(xp).execute(&mut *tx).await?;
@@ -267,9 +338,20 @@ async fn complete_orders(app: &App) -> Res<()> {
     }
     Ok(())
 }
+/// slot, kind, rarity, target, progress, XP paid, Engagement Valor paid, its channel's name
+type OrderRow = (
+    i16,
+    String,
+    i16,
+    i32,
+    i64,
+    Option<i32>,
+    Option<i32>,
+    Option<String>,
+);
 async fn orders_json(db: &mut PgConnection, user: &str) -> Res<Value> {
-    let rows: Vec<(i16, String, i16, i32, i64, Option<i32>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT o.slot,o.kind,o.rarity,o.target,least(({PROGRESS})::bigint,o.target),o.xp FROM daily_orders o WHERE o.user_id=$1 AND o.day=current_date ORDER BY o.slot"
+    let rows: Vec<OrderRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT o.slot,o.kind,o.rarity,o.target,least(({PROGRESS})::bigint,o.target),o.xp,o.ev,(SELECT display_name FROM channel_users WHERE id=o.ev_channel) FROM daily_orders o WHERE o.user_id=$1 AND o.day=current_date ORDER BY o.slot"
     )))
     .bind(user)
     .fetch_all(&mut *db)
@@ -279,13 +361,14 @@ async fn orders_json(db: &mut PgConnection, user: &str) -> Res<Value> {
         .bind(user).fetch_one(&mut *db).await?;
     let orders: Vec<Value> = rows
         .into_iter()
-        .map(|(slot, kind, rarity, target, progress, xp)| {
+        .map(|(slot, kind, rarity, target, progress, xp, ev, ev_channel)| {
             let (_, label, _) = KINDS.iter().find(|k| k.0 == kind).copied().unwrap_or(KINDS[0]);
             let label = label.replace("{n}", &target.to_string());
             let label = if target == 1 { label.replace("channels", "channel").replace("Surges", "Surge").replace("polls", "poll").replace("Beacons", "Beacon").replace("raids", "raid").replace("streams", "stream").replace("times", "time") } else { label };
             let rarity = rarity as usize;
             json!({"slot": slot, "kind": kind, "label": label, "rarity": RARITY[rarity].0, "target": target, "progress": progress,
-                "done": xp.is_some(), "xp": xp.unwrap_or((ORDER_XP * RARITY[rarity].2 * streak_multiplier(days.max(1))).round() as i32)})
+                "done": xp.is_some(), "xp": xp.unwrap_or((ORDER_XP * RARITY[rarity].2 * streak_multiplier(days.max(1))).round() as i32),
+                "ev": ev.map_or(ORDER_EV[rarity], i64::from), "ev_channel": ev_channel})
         })
         .collect();
     Ok(
@@ -337,6 +420,15 @@ pub fn routes() -> Router<App> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn faction_titles_follow_the_discord_ladder() {
+        assert_eq!(title(1, Some("myria")), "Initiate");
+        assert_eq!(title(5, None), "Private");
+        assert_eq!(title(6, None), "PFC");
+        assert_eq!(title(99, Some("aetheron")), "High Imp");
+        assert_eq!(title(100, Some("glint")), "Inferno");
+        assert_eq!((frame(9), frame(10), frame(100)), (0, 1, 10));
+    }
     #[test]
     fn levels_follow_the_legacy_curve() {
         assert_eq!(

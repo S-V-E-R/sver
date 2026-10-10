@@ -701,7 +701,8 @@ async fn exercise(app: App) {
     for task in tasks {
         task.await.unwrap();
     }
-    let earned:i64=sqlx::query_scalar("SELECT sum(points)::bigint FROM faction_influence WHERE user_id='faction-user-2' AND source='watch'").fetch_one(&app.db).await.unwrap();
+    // The cap is per UTC day of `at`, and a run just before midnight spreads these events over two days.
+    let earned:i64=sqlx::query_scalar("SELECT max(points)::bigint FROM (SELECT sum(points) AS points FROM faction_influence WHERE user_id='faction-user-2' AND source='watch' GROUP BY date_trunc('day',happened_at AT TIME ZONE 'UTC')) days").fetch_one(&app.db).await.unwrap();
     assert!(earned <= app.config.factions.daily_caps[1]);
     // No Trusted viewer, no streaming points; unverified supporter and expired playback also fail.
     sql(
