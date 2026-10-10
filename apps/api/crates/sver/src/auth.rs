@@ -718,16 +718,15 @@ pub async fn mfa_setup(State(app): State<App>, jar: CookieJar) -> Result<Json<Va
         return Err(Error::bad("An authenticator is already enabled."));
     }
     sec::reserve(&app, vec![format!("setup:{}", user.id)], 5, 900).await?;
-    let secret = totp_rs::Secret::Raw({
+    let secret = totp_rs::Secret::new({
         use rand::TryRng;
         let mut bytes = vec![0u8; 20];
         rand::rngs::SysRng
             .try_fill_bytes(&mut bytes)
             .map_err(|_| Error::internal())?;
-        bytes
+        bytes.into_boxed_slice()
     })
-    .to_encoded()
-    .to_string();
+    .to_base32();
     sqlx::query("DELETE FROM challenges WHERE user_id=$1 AND kind='setup'")
         .bind(&user.id)
         .execute(&mut *tx)
@@ -736,7 +735,7 @@ pub async fn mfa_setup(State(app): State<App>, jar: CookieJar) -> Result<Json<Va
         .bind(sec::digest(&sec::token())).bind(&user.id).bind(user.auth_version).bind(sec::digest(&session.id)).bind(sec::seal(&app,&format!("totp:{}",user.id),&secret)?).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(
-        json!({"secret":secret,"uri":sec::totp(&secret,&user.email)?.get_url()}),
+        json!({"secret":secret,"uri":sec::totp(&secret,&user.email)?.to_url().map_err(|_| Error::internal())?}),
     ))
 }
 pub async fn codes(db: &mut PgConnection, user_id: &str) -> Result<Vec<String>> {

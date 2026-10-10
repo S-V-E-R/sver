@@ -879,7 +879,7 @@ async fn exercise(app: App, mock: Mock) {
     let setup = a.ok("POST", "/api/auth/mfa/setup", json!({})).await;
     let secret = setup["secret"].as_str().unwrap();
     let otp = sec::totp(secret, "first@example.invalid").unwrap();
-    let code = otp.generate_current().unwrap();
+    let code = otp.generate_current().to_string();
     let recovery = a
         .ok("POST", "/api/auth/mfa/enable", json!({"code":code}))
         .await["recovery_codes"]
@@ -1363,7 +1363,8 @@ async fn exercise(app: App, mock: Mock) {
     assert_eq!(
         sec::totp(legacy_secret, "legacy-mfa@example.invalid")
             .unwrap()
-            .generate(1_111_111_111),
+            .generate(1_111_111_111)
+            .to_string(),
         "624539"
     );
     let encrypted = sec::seal(&app, "totp:legacy-mfa", legacy_secret).unwrap();
@@ -1420,7 +1421,7 @@ async fn exercise(app: App, mock: Mock) {
     let legacy_code = sec::totp(legacy_secret, "legacy-mfa@example.invalid")
         .unwrap()
         .generate_current()
-        .unwrap();
+        .to_string();
     legacy_mfa
         .ok("POST", "/api/auth/mfa/login", json!({"code":legacy_code}))
         .await;

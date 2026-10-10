@@ -629,6 +629,8 @@ pub async fn card(
         }
         _ => also_known_as(&mut db, &user.id).await?,
     };
+    let faction = crate::factions::membership(&mut db, &me.id).await?;
+    let level = crate::progression::level(crate::progression::total(&mut db, &me.id).await?);
     Ok(Json(json!({
         "username": me.username,
         "also_known_as": also_known_as,
@@ -638,8 +640,10 @@ pub async fn card(
         "follower_count": followers,
         "joined_at": me.created_at,
         "viewer": {"signed_in": viewer.is_some(), "is_self": is_self, "following": following, "blocked": blocked},
-        "faction": crate::factions::membership(&mut db, &me.id).await?,
+        "faction": faction,
         "live": crate::playback::is_live(&mut db, &me.id).await?,
-        "level": crate::progression::level(crate::progression::total(&mut db, &me.id).await?),
+        "level": level,
+        "title": crate::progression::title(level, faction.as_deref()),
+        "frame": crate::progression::frame(level),
     })))
 }

@@ -62,6 +62,8 @@ mod moderation;
 mod moments;
 #[path = "streams/outside_emotes.rs"]
 mod outside_emotes;
+#[path = "streams/overlays.rs"]
+mod overlays;
 #[path = "streams/playback.rs"]
 mod playback;
 #[path = "streams/plays.rs"]
@@ -537,6 +539,7 @@ async fn exercise(e: &Env) {
     dms::exercise(e).await;
     devapps::exercise(e).await;
     events::exercise(e).await;
+    overlays::exercise(e).await;
     moderation::exercise(e).await;
     gifs::exercise(e).await;
     chat_social::exercise(e).await;

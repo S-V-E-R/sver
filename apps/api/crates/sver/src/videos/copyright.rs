@@ -40,21 +40,37 @@ impl Notice {
         Ok(())
     }
 }
-fn video_id(app: &App, location: &str) -> Res<String> {
-    let url = url::Url::parse(location)
-        .map_err(|_| Fail::bad("Provide the full S.V.E.R video or clip link."))?;
+/// What a notice names: a video or clip, or an uploaded Beacon. A Beacon made from a clip is
+/// covered by its clip's case (holding the clip hides its Beacons), so its link names the clip.
+#[derive(PartialEq)]
+enum Target {
+    Video(String),
+    Beacon(String),
+}
+async fn target(app: &App, db: &mut PgConnection, location: &str) -> Res<(Target, Option<String>)> {
+    let wrong = || Fail::bad("Provide a S.V.E.R video, clip or Beacon link.");
+    let url = url::Url::parse(location).map_err(|_| wrong())?;
     let origin = url::Url::parse(&app.config.origin).map_err(|_| Fail::internal())?;
     if url.origin() != origin.origin() || !url.username().is_empty() || url.password().is_some() {
-        return Err(Fail::bad("Provide a S.V.E.R video or clip link."));
+        return Err(wrong());
     }
     let path: Vec<_> = url.path().trim_matches('/').split('/').collect();
-    if path.len() != 2
-        || !matches!(path[0], "videos" | "clips")
-        || uuid::Uuid::parse_str(path[1]).is_err()
-    {
-        return Err(Fail::bad("Provide a S.V.E.R video or clip link."));
+    if path.len() != 2 || uuid::Uuid::parse_str(path[1]).is_err() {
+        return Err(wrong());
     }
-    Ok(path[1].into())
+    let video = match path[0] {
+        "videos" | "clips" => path[1].to_string(),
+        "beacons" => {
+            let beacon = crate::beacons::load(db, path[1]).await?;
+            match beacon.clip_id.filter(|_| beacon.source == "CLIP") {
+                Some(clip) => clip,
+                None => return Ok((Target::Beacon(beacon.id), beacon.owner_id)),
+            }
+        }
+        _ => return Err(wrong()),
+    };
+    let source = load(db, &video).await?;
+    Ok((Target::Video(video), source.owner_id))
 }
 async fn alert(app: &App, db: &mut PgConnection) -> Res<()> {
     for staff in crate::safety::take_down::staff_ids(db).await? {
@@ -88,16 +104,19 @@ async fn submit(
     )
     .await?;
     security::turnstile(&app, &input.turnstile, "copyright", ip).await?;
-    let video = video_id(&app, &input.location)?;
     let mut tx = app.db.begin().await?;
-    let source = load(&mut tx, &video).await?;
+    let (target, owner) = target(&app, &mut tx, &input.location).await?;
+    let (video, beacon) = match target {
+        Target::Video(v) => (Some(v), None),
+        Target::Beacon(b) => (None, Some(b)),
+    };
     let id = profiles::new_id();
     let sealed = security::seal(
         &app,
         "copyright-notice",
         &serde_json::to_string(&input).map_err(|_| Fail::internal())?,
     )?;
-    sqlx::query("INSERT INTO copyright_cases(id,video_id,owner_id,notice,contact_hash) VALUES($1,$2,$3,$4,$5)").bind(&id).bind(video).bind(source.owner_id).bind(sealed).bind(security::digest(&input.email)).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO copyright_cases(id,video_id,beacon_id,owner_id,notice,contact_hash) VALUES($1,$2,$3,$4,$5,$6)").bind(&id).bind(video).bind(beacon).bind(owner).bind(sealed).bind(security::digest(&input.email)).execute(&mut *tx).await?;
     crate::jobs::queue_address(&app,&mut tx,None,&input.email,"Copyright notice received",&format!("Your S.V.E.R copyright case is {id}. We will review it promptly. Reply to dmca@sver.tv with this reference if you need to add information.")).await?;
     alert(&app, &mut tx).await?;
     tx.commit().await?;
@@ -108,7 +127,10 @@ async fn submit(
 #[derive(sqlx::FromRow, Serialize)]
 struct Case {
     id: String,
-    video_id: String,
+    video_id: Option<String>,
+    beacon_id: Option<String>,
+    #[serde(skip_serializing)]
+    beacon_restore: Option<Value>,
     owner_id: Option<String>,
     status: String,
     #[serde(skip_serializing)]
@@ -121,6 +143,14 @@ struct Case {
     restore_by: Option<DateTime<Utc>>,
     reason: Option<String>,
     forward_state: Option<String>,
+}
+impl Case {
+    fn target(&self) -> Target {
+        match (&self.video_id, &self.beacon_id) {
+            (Some(v), _) => Target::Video(v.clone()),
+            (None, b) => Target::Beacon(b.clone().unwrap_or_default()),
+        }
+    }
 }
 async fn cases(State(app): State<App>, jar: CookieJar) -> Res<Json<Value>> {
     let user = profiles::signed_in(&app, &jar).await?;
@@ -150,8 +180,8 @@ async fn counter(
 ) -> Res<Json<Value>> {
     let user = profiles::signed_in(&app, &jar).await?;
     input.validate(true)?;
-    let target = video_id(&app, &input.location)?;
     let mut tx = app.db.begin().await?;
+    let (target, _) = target(&app, &mut tx, &input.location).await?;
     let case: Case =
         sqlx::query_as("SELECT * FROM copyright_cases WHERE id=$1 AND owner_id=$2 FOR UPDATE")
             .bind(&id)
@@ -159,9 +189,9 @@ async fn counter(
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(Fail::missing)?;
-    if case.status != "REMOVED" || case.video_id != target {
+    if case.status != "REMOVED" || case.target() != target {
         return Err(Fail::bad(
-            "Counter-notice must identify the removed video in this case.",
+            "Counter-notice must identify the removed video or Beacon in this case.",
         ));
     }
     profiles::rate(&app, format!("copyright-counter:{}", user.id), 5, 3600).await?;
@@ -241,7 +271,19 @@ async fn decide(
             .map_err(|_| Fail::internal())?;
     let status = match input.action.as_str() {
         "remove" if case.status == "OPEN" => {
-            review::hold(&mut tx, &case.video_id, "COPYRIGHT", &id, true).await?;
+            match case.target() {
+                Target::Video(video) => {
+                    review::hold(&mut tx, &video, "COPYRIGHT", &id, true).await?
+                }
+                Target::Beacon(beacon) => {
+                    let was = crate::beacons::review::hide(&mut tx, &beacon).await?;
+                    sqlx::query("UPDATE copyright_cases SET beacon_restore=$2 WHERE id=$1")
+                        .bind(&id)
+                        .bind(was)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+            }
             sqlx::query("UPDATE copyright_cases SET removed_at=now() WHERE id=$1")
                 .bind(&id)
                 .execute(&mut *tx)
@@ -303,7 +345,7 @@ async fn decide(
                 && case.restore_after.is_some_and(|t| t <= Utc::now())
                 && case.forward_state.as_deref() == Some("accepted") =>
         {
-            review::release(&mut tx, "COPYRIGHT", std::slice::from_ref(&id)).await?;
+            restore(&mut tx, &case).await?;
             "RESTORED"
         }
         _ => return Err(Fail::bad("That decision is not available for this case.")),
@@ -383,6 +425,19 @@ async fn repeat_infringer(
     .await?;
     Ok(())
 }
+/// Lifts a case's hold: the video hold, or the Beacon back to how it was before the removal.
+async fn restore(db: &mut PgConnection, case: &Case) -> Res<()> {
+    match case.target() {
+        Target::Video(_) => review::release(db, "COPYRIGHT", std::slice::from_ref(&case.id)).await,
+        Target::Beacon(beacon) => {
+            let was = case
+                .beacon_restore
+                .clone()
+                .unwrap_or(json!({"previous": true}));
+            crate::beacons::review::unhide(db, &beacon, &was).await
+        }
+    }
+}
 pub async fn mail_result(db: &mut PgConnection, id: &str, state: &str) -> crate::Result<()> {
     sqlx::query("UPDATE copyright_cases SET forward_state=$2 WHERE forward_mail_id=$1")
         .bind(id)
@@ -393,9 +448,10 @@ pub async fn mail_result(db: &mut PgConnection, id: &str, state: &str) -> crate:
 }
 pub async fn tick(app: &App) -> Res<()> {
     let mut tx = app.db.begin().await?;
-    let rows:Vec<(String,Option<String>)>=sqlx::query_as("UPDATE copyright_cases SET status='RESTORED',reviewed_at=now(),reason='Statutory counter-notice period elapsed without notice of a court action.' WHERE status='COUNTER' AND restore_after<=now() AND forward_state='accepted' RETURNING id,owner_id").fetch_all(&mut *tx).await?;
-    for (id, owner) in rows {
-        review::release(&mut tx, "COPYRIGHT", std::slice::from_ref(&id)).await?;
+    let rows:Vec<Case>=sqlx::query_as("UPDATE copyright_cases SET status='RESTORED',reviewed_at=now(),reason='Statutory counter-notice period elapsed without notice of a court action.' WHERE status='COUNTER' AND restore_after<=now() AND forward_state='accepted' RETURNING *").fetch_all(&mut *tx).await?;
+    for case in rows {
+        restore(&mut tx, &case).await?;
+        let (id, owner) = (case.id, case.owner_id);
         crate::safety::audit(
             &mut tx,
             None,
