@@ -164,3 +164,21 @@
 .magnet-previous-list { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .magnet-previous-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .magnet-previous-row p { margin: 0; flex: 1 1 180px; }
+
+/* The season reveal (docs/MOTION.md §2): the front-line banner opened to about 280 px for 2.6 s. */
+.season-reveal { min-height: 280px; flex-direction: column; flex-wrap: nowrap; justify-content: center; gap: 12px; text-align: center; padding-top: 24px; }
+.season-reveal-rule { position: absolute; top: 0; left: 0; right: 0; height: 3px; display: flex; transform-origin: left; }
+.season-reveal-rule span { flex: 1; background: var(--accent); }
+.season-reveal-year { margin: 0; }
+.season-reveal-crests { list-style: none; margin: 0; padding: 0; display: flex; gap: 24px; }
+.season-reveal-crests .won .identity-crest { transform: translateY(-10px); }
+.season-reveal-crests li:not(.won) { opacity: .55; }
+.season-reveal-bar { flex: none; width: min(560px, 100%); }
+.season-reveal-bar i { transform-origin: left; }
+.season-reveal h2 { margin: 0; font-size: 22px; letter-spacing: .04em; text-transform: uppercase; }
+.season-reveal h2:focus, .front-line-status h2:focus { outline: none; }
+.season-reveal-after p { margin: 0; font-size: 14px; }
+.season-reveal-skip { position: absolute; top: 10px; right: 12px; }
+.season-reveal-bar small b { font-weight: inherit; }
+.season-replay { min-height: 24px; padding: 0; background: none; border: 0; box-shadow: none; color: var(--accent); font: inherit; letter-spacing: 0; text-transform: none; text-decoration: underline; }
+.season-replay:hover:not(:disabled) { color: var(--accent-light); filter: none; }

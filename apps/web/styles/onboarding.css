@@ -77,3 +77,21 @@
   .signup-steps { gap: 8px 14px; }
   .signup-steps li { font-size: 12px; }
 }
+
+/* The welcome ceremony (docs/MOTION.md §1). The relic mark sits behind the crest at 20%. While the
+   ceremony plays, four corner pieces stand in for the .frame brackets so they can draw in. */
+.joined-crest { position: relative; display: grid; place-items: center; width: 200px; height: 140px; }
+.joined-crest img { position: relative; }
+.relic { position: absolute; inset: -30px 0; width: 200px; height: 200px; opacity: .2; fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; }
+.relic path { stroke-dasharray: 1; stroke-dashoffset: 0; }
+.joined h1:focus { outline: none; }
+.joined h1 .line { display: block; }
+.joined-line { margin: 0; font-style: italic; color: var(--ink-muted); }
+.joined-cry { margin: 0; font-family: var(--font-display); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+.ceremony::before { display: none; }
+.ceremony-corner { position: absolute; width: 16px; height: 16px; pointer-events: none; --b: linear-gradient(var(--accent), var(--accent)); }
+.ceremony-corner.tl { top: -1px; left: -1px; transform-origin: top left; background: var(--b) top left / 16px 2px no-repeat, var(--b) top left / 2px 16px no-repeat; }
+.ceremony-corner.tr { top: -1px; right: -1px; transform-origin: top right; background: var(--b) top right / 16px 2px no-repeat, var(--b) top right / 2px 16px no-repeat; }
+.ceremony-corner.bl { bottom: -1px; left: -1px; transform-origin: bottom left; background: var(--b) bottom left / 16px 2px no-repeat, var(--b) bottom left / 2px 16px no-repeat; }
+.ceremony-corner.br { bottom: -1px; right: -1px; transform-origin: bottom right; background: var(--b) bottom right / 16px 2px no-repeat, var(--b) bottom right / 2px 16px no-repeat; }
+.ceremony-skip { position: absolute; top: 8px; right: 12px; }

@@ -11,6 +11,7 @@ import type { VideoCard } from "../lib/videos";
 import { BeaconGrid } from "../components/BeaconGrid";
 import type { BeaconItem } from "../lib/beacons";
 import { FrontLine } from "../components/WarStanding";
+import { SeasonReveal } from "../components/SeasonReveal";
 import { TerritoryGrid, type BrowseGenre } from "../components/Territories";
 import type { War } from "../lib/war";
 
@@ -47,7 +48,9 @@ export default async function Home() {
   const staffPicks = (home?.spotlights ?? []).filter(s => !s.stream && s.user);
 
   return <div className="home">
-    <FrontLine war={war} faction={isFaction(viewerFaction) ? viewerFaction : null} signedIn={!!account} />
+    {war?.season?.finished && war.season.winners.length
+      ? <SeasonReveal war={war} season={war.season} faction={isFaction(viewerFaction) ? viewerFaction : null} signedIn={!!account} />
+      : <FrontLine war={war} faction={isFaction(viewerFaction) ? viewerFaction : null} signedIn={!!account} />}
 
     {!home && <p className="notice" role="alert">Live channels couldn&apos;t be loaded. Please refresh.</p>}
 
