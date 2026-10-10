@@ -339,24 +339,23 @@ pub async fn turnstile(app: &App, token: &str, action: &str, ip: IpAddr) -> Resu
     }
     Ok(())
 }
-pub fn totp(secret: &str, email: &str) -> Result<totp_rs::TOTP> {
-    let secret = totp_rs::Secret::Encoded(secret.to_owned())
-        .to_bytes()
-        .map_err(|_| Error::internal())?;
+pub fn totp(secret: &str, email: &str) -> Result<totp_rs::Totp> {
+    let secret = totp_rs::Secret::try_from_base32(secret).map_err(|_| Error::internal())?;
     // Legacy otplib accounts have working 80-bit secrets. New enrollment generates 160 bits.
     // All other constructor parameters are fixed here; retain its label validation explicitly.
-    if secret.len() < 10 || email.contains(':') {
+    if secret.as_bytes().len() < 10 || email.contains(':') {
         return Err(Error::internal());
     }
-    Ok(totp_rs::TOTP::new_unchecked(
-        totp_rs::Algorithm::SHA1,
-        6,
-        0,
-        30,
-        secret,
-        Some("S.V.E.R".into()),
-        email.into(),
-    ))
+    // build_noncompliant: the checks above stand in for the RFC minimum, which 80-bit legacy keys miss.
+    Ok(totp_rs::Builder::new()
+        .with_algorithm(totp_rs::Algorithm::SHA1)
+        .with_digits(6)
+        .with_skew(0)
+        .with_step_duration(30)
+        .with_secret(secret)
+        .with_issuer(Some("S.V.E.R"))
+        .with_account_name(email)
+        .build_noncompliant())
 }
 pub async fn prove_mfa(
     app: &App,
@@ -377,7 +376,10 @@ pub async fn prove_mfa(
     )?;
     let current = Utc::now().timestamp() / 30;
     for step in [current, current - 1, current + 1] {
-        if step > user.mfa_last_step && code.len() == 6 && otp.check(code, (step * 30) as u64) {
+        if step > user.mfa_last_step
+            && code.len() == 6
+            && otp.check(code, (step * 30) as u64).is_some()
+        {
             sqlx::query("UPDATE users SET mfa_last_step=$2 WHERE id=$1")
                 .bind(&user.id)
                 .bind(step)
