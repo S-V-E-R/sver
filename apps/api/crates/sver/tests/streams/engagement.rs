@@ -146,8 +146,15 @@ pub async fn exercise(e: &Env) {
     };
     assert_eq!(orders().await["orders"].as_array().unwrap().len(), 3);
     e.sql("UPDATE daily_orders SET kind=CASE slot WHEN 0 THEN 'watch' ELSE 'poll' END,rarity=0,target=CASE slot WHEN 0 THEN 1 ELSE 5 END WHERE user_id='ev-viewer'").await;
+    let before = balance(e, "ev-viewer").await;
     sver::engagement::award_watch(&e.app).await.unwrap();
     let today = orders().await;
+    // A Common order also pays 10 Engagement Valor in the channel the viewer was watching.
+    assert_eq!(today["orders"][0]["ev"], 10, "{today}");
+    assert!(today["orders"][0]["ev_channel"].is_string(), "{today}");
+    assert_eq!(balance(e, "ev-viewer").await, before + 10);
+    // Take it back out so the reward arithmetic below stays as it was.
+    e.sql("UPDATE engagement SET balance=balance-10,earned=earned-10 WHERE channel_id='ev-owner' AND user_id='ev-viewer'").await;
     assert_eq!(
         (
             &today["orders"][0]["done"],
@@ -165,7 +172,10 @@ pub async fn exercise(e: &Env) {
         ),
         "{today}"
     );
-    assert_eq!(progression().await["level"], 2, "62 + 40 XP");
+    let mine = progression().await;
+    assert_eq!(mine["level"], 2, "62 + 40 XP");
+    assert_eq!(mine["frame"], 0);
+    assert!(mine["title"].is_string(), "{mine}");
     let token = viewer.as_str();
     let reroll = |slot: i32| async move {
         call(

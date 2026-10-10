@@ -62,12 +62,16 @@ mod moderation;
 mod moments;
 #[path = "streams/outside_emotes.rs"]
 mod outside_emotes;
+#[path = "streams/overlays.rs"]
+mod overlays;
 #[path = "streams/playback.rs"]
 mod playback;
 #[path = "streams/plays.rs"]
 mod plays;
 #[path = "streams/raids.rs"]
 mod raids;
+#[path = "streams/ravens_eye.rs"]
+mod ravens_eye;
 #[path = "streams/real_media.rs"]
 mod real_media;
 #[path = "streams/reports.rs"]
@@ -537,6 +541,7 @@ async fn exercise(e: &Env) {
     dms::exercise(e).await;
     devapps::exercise(e).await;
     events::exercise(e).await;
+    overlays::exercise(e).await;
     moderation::exercise(e).await;
     gifs::exercise(e).await;
     chat_social::exercise(e).await;
@@ -552,6 +557,7 @@ async fn exercise(e: &Env) {
     discovery::exercise(e).await;
     plays::exercise(e).await;
     magnet::exercise(e).await;
+    ravens_eye::exercise(e).await;
     // Live events: each flow above wrote its topic (docs/DEVELOPER_PLATFORM.md section 2).
     for kind in ["moderation", "raid:incoming"] {
         let written: bool = sqlx::query_scalar(

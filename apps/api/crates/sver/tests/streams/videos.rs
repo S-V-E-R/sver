@@ -1356,7 +1356,7 @@ async fn copyright_flow(e: &Env, video: &str, staff: &str) {
             "POST",
             &format!("/api/me/copyright/{id}/counter"),
             Some(&e.cookie),
-            notice
+            notice.clone()
         )
         .await
         .0,
@@ -1410,6 +1410,109 @@ async fn copyright_flow(e: &Env, video: &str, staff: &str) {
             .0,
         StatusCode::OK
     );
+
+    // An uploaded Beacon gets its own case: upheld, it leaves the feeds; a forwarded counter-notice
+    // brings it back. A Beacon made from a clip names the clip's case instead.
+    let beacon = uuid::Uuid::new_v4().to_string();
+    let from_clip = uuid::Uuid::new_v4().to_string();
+    for (id, source, clip) in [(&beacon, "UPLOAD", None), (&from_clip, "CLIP", Some(video))] {
+        sqlx::query("INSERT INTO beacons(id,owner_id,source,status,title,seed,request_key,clip_id,published_at,duration_ms) VALUES($1,'stream-owner',$2,'PUBLISHED','Synthetic',1,$1,$3,now(),6000)")
+            .bind(id).bind(source).bind(clip).execute(&e.app.db).await.unwrap();
+    }
+    let file = |target: &str| {
+        let mut n = notice.clone();
+        n["location"] = json!(format!("{}/beacons/{target}", e.app.config.origin));
+        n
+    };
+    let (_, clip_case) = call(e, "POST", "/api/copyright", None, file(&from_clip)).await;
+    let named: (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT video_id,beacon_id FROM copyright_cases WHERE id=$1")
+            .bind(clip_case["id"].as_str().unwrap())
+            .fetch_one(&e.app.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        named,
+        (Some(video.to_string()), None),
+        "a clip Beacon's notice names its clip"
+    );
+    let (status, filed) = call(e, "POST", "/api/copyright", None, file(&beacon)).await;
+    assert_eq!(status, StatusCode::OK, "{filed}");
+    let case = filed["id"].as_str().unwrap();
+    let hidden = || async {
+        sqlx::query_scalar::<_, bool>("SELECT hidden FROM beacons WHERE id=$1")
+            .bind(&beacon)
+            .fetch_one(&e.app.db)
+            .await
+            .unwrap()
+    };
+    let decide = |action: &'static str| async move {
+        call(
+            e,
+            "POST",
+            &format!("/api/admin/copyright/{case}"),
+            Some(staff),
+            json!({"action": action, "reason": "Synthetic Beacon decision"}),
+        )
+        .await
+        .0
+    };
+    assert!(!hidden().await);
+    assert_eq!(decide("remove").await, StatusCode::OK);
+    assert!(
+        hidden().await,
+        "an upheld notice takes the Beacon out of the feeds"
+    );
+    // The counter-notice has to name the removed Beacon, not something else.
+    let wrong = call(
+        e,
+        "POST",
+        &format!("/api/me/copyright/{case}/counter"),
+        Some(&e.cookie),
+        notice.clone(),
+    )
+    .await
+    .0;
+    assert_eq!(wrong, StatusCode::BAD_REQUEST);
+    let counter = call(
+        e,
+        "POST",
+        &format!("/api/me/copyright/{case}/counter"),
+        Some(&e.cookie),
+        file(&beacon),
+    )
+    .await
+    .0;
+    assert_eq!(counter, StatusCode::OK);
+    assert_eq!(decide("accept_counter").await, StatusCode::OK);
+    let mail: String =
+        sqlx::query_scalar("SELECT forward_mail_id FROM copyright_cases WHERE id=$1")
+            .bind(case)
+            .fetch_one(&e.app.db)
+            .await
+            .unwrap();
+    sqlx::query("UPDATE copyright_cases SET restore_after=now()-interval '1 second' WHERE id=$1")
+        .bind(case)
+        .execute(&e.app.db)
+        .await
+        .unwrap();
+    sver::videos::copyright::mail_result(&mut e.app.db.acquire().await.unwrap(), &mail, "accepted")
+        .await
+        .unwrap();
+    sver::videos::copyright::tick(&e.app).await.unwrap();
+    assert!(!hidden().await, "restored to how it was before the removal");
+    // Leave the clip Beacon's case closed so it can't count as a strike below, and the synthetic
+    // Beacons gone so the Highlight's later legal removal isn't waiting on them.
+    sqlx::query("UPDATE copyright_cases SET status='REJECTED' WHERE id=$1")
+        .bind(clip_case["id"].as_str().unwrap())
+        .execute(&e.app.db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE beacons SET status='DELETED' WHERE id=ANY($1)")
+        .bind([&beacon, &from_clip])
+        .execute(&e.app.db)
+        .await
+        .unwrap();
 
     // Repeat infringers: an upheld notice is a strike for 12 months unless a counter-notice
     // restored it (the case above); the third active strike restricts the channel.
