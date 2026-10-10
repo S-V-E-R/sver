@@ -49,7 +49,11 @@ fn legacy_secret(value: &str, key: &[u8]) -> Result<String, String> {
         AesGcm::<Aes256, U16>::new_from_slice(key).map_err(|_| "Invalid legacy encryption key")?;
     String::from_utf8(
         cipher
-            .decrypt(parts[0].as_slice().into(), ciphertext.as_slice())
+            .decrypt(
+                &aes_gcm::Nonce::<U16>::try_from(parts[0].as_slice())
+                    .map_err(|_| "Invalid legacy TOTP nonce")?,
+                ciphertext.as_slice(),
+            )
             .map_err(|_| "Legacy TOTP decryption failed; no account was changed")?,
     )
     .map_err(|_| "Invalid legacy TOTP plaintext".into())

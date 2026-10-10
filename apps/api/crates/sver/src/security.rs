@@ -36,7 +36,7 @@ pub fn seal(app: &App, purpose: &str, value: &str) -> Result<String> {
     let cipher = Aes256Gcm::new_from_slice(&app.config.key).map_err(|_| Error::internal())?;
     let encrypted = cipher
         .encrypt(
-            Nonce::from_slice(&nonce),
+            &Nonce::from(nonce),
             Payload {
                 msg: value.as_bytes(),
                 aad: purpose.as_bytes(),
@@ -50,20 +50,22 @@ pub fn seal(app: &App, purpose: &str, value: &str) -> Result<String> {
     ))
 }
 pub fn unseal(app: &App, purpose: &str, value: &str) -> Result<String> {
+    open(&app.config.key, purpose, value)
+}
+/// Opens a `v1.{nonce}.{ciphertext}` value sealed with `key` for `purpose` (the AAD).
+fn open(key: &[u8], purpose: &str, value: &str) -> Result<String> {
     let parts: Vec<_> = value.split('.').collect();
     if parts.len() != 3 || parts[0] != "v1" {
         return Err(Error::internal());
     }
     let nonce = STANDARD.decode(parts[1]).map_err(|_| Error::internal())?;
-    if nonce.len() != 12 {
-        return Err(Error::internal());
-    }
+    let nonce = Nonce::try_from(nonce.as_slice()).map_err(|_| Error::internal())?;
     let encrypted = STANDARD.decode(parts[2]).map_err(|_| Error::internal())?;
-    let cipher = Aes256Gcm::new_from_slice(&app.config.key).map_err(|_| Error::internal())?;
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| Error::internal())?;
     String::from_utf8(
         cipher
             .decrypt(
-                Nonce::from_slice(&nonce),
+                &nonce,
                 Payload {
                     msg: &encrypted,
                     aad: purpose.as_bytes(),
@@ -125,6 +127,15 @@ mod crypto_tests {
                     .is_err()
             );
         }
+        // A value sealed by another AES-256-GCM implementation (Python cryptography) still opens,
+        // so updating the aes-gcm crate keeps every sealed secret readable; the purpose must match.
+        let vector = "v1.ZGVmZ2hpamtsbW5v.O2KwEhGMIvddQiyNuwkPmWK0Z2b+CYkagb7BD5jUhfGAw7HR7HY=";
+        let key: Vec<u8> = (0..32).collect();
+        assert_eq!(
+            open(&key, "test-purpose", vector).unwrap(),
+            "synthetic sealed value"
+        );
+        assert!(open(&key, "other-purpose", vector).is_err());
         // A hash from another implementation (argon2-cffi, the stored accounts' parameters) still
         // verifies, so upgrading the argon2 crate never locks anyone out.
         let pinned = PasswordHash::new("$argon2id$v=19$m=19456,t=2,p=1$qznOpH76YmxW41OO8FgvLQ$QsIGE0uoXAkpo6sGzqwxFYSxzQMxXtghAzPF3rWwrNs").unwrap();
