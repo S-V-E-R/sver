@@ -407,3 +407,11 @@ a.takedown-link:hover { color: var(--ink); }
 .messages-body li.mine { justify-self: end; text-align: right; }
 .messages-text { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px 10px; border: 1px solid var(--line); background: var(--surface); }
 .messages-body li.mine .messages-text { border-color: var(--accent); }
+/* Level badge frames: a new frame every 10 levels (docs/PROGRESSION.md, level-up cosmetic). Borders only, no glow. */
+.player-level[data-frame]:not([data-frame="0"]) { padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; }
+.player-level[data-frame="2"], .player-level[data-frame="3"] { border-color: #a8703c; }
+.player-level[data-frame="4"], .player-level[data-frame="5"] { border-color: #b8bec7; }
+.player-level[data-frame="6"], .player-level[data-frame="7"] { border-color: #d4af37; }
+.player-level[data-frame="8"], .player-level[data-frame="9"] { border: 2px double #d4af37; }
+.player-level[data-frame="10"] { border: 2px double var(--accent, #d4af37); color: var(--ink); }
+.player-title { font-size: .8em; color: var(--ink-muted); margin-left: 4px; }

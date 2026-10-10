@@ -22,7 +22,7 @@ export default async function DmcaPage() {
       <p>Identify the copyrighted work and the material on S.V.E.R, with links precise enough for us to find it. Include your signature and contact details, a good-faith statement that the use is unauthorized by the owner, their agent or the law, and a statement of accuracy and authority made under penalty of perjury.</p>
       <p>Consult the <a href="https://www.copyright.gov/512/">U.S. Copyright Office’s notice requirements</a> for the full legal requirements, including the contact information a notice must contain. Consider whether permission or a legal exception applies before sending a notice.</p>
     </> },
-    { title: "Submit a video copyright notice", content: config.data?.turnstile_site_key ? <CopyrightForm sitekey={config.data.turnstile_site_key} /> : <p>The form could not load. Please email <a href="mailto:dmca@sver.tv">dmca@sver.tv</a> with your notice.</p> },
+    { title: "Submit a copyright notice (videos, clips and Beacons)", content: config.data?.turnstile_site_key ? <CopyrightForm sitekey={config.data.turnstile_site_key} /> : <p>The form could not load. Please email <a href="mailto:dmca@sver.tv">dmca@sver.tv</a> with your notice.</p> },
     { title: "What happens next", content: <>
       <p>We review notices and act expeditiously on valid claims, which may include removing material or disabling access. We may request missing information and notify the uploader of the claim. A notice may be shared with the uploader, including the information necessary to understand and respond to it.</p>
       <p>S.V.E.R terminates accounts of repeat infringers in appropriate circumstances. Copyright notices must not be used to harass people or remove content you do not own.</p>

@@ -1,6 +1,6 @@
 # Progression
 
-**Status: draft for Joe's decisions (October 9, 2026). Built so far, the parts that don't depend on the questions (migration 0063): account XP and levels from watching and chat with the daily caps, the Scout bonus, the player card's level and XP bar, the level on the user card, and "Scouted by N viewers" in Studio. Channel loyalty ranks (shown when hovering a name in chat) and the chat rank gate followed (migration 0064). Daily orders followed with XP rewards only (migration 0065; 40 XP for a Common order, weekly milestones 100/200/300 XP, both Proposed). Level-up rewards, faction titles and any Engagement Valor for orders wait for the questions.** Numbers marked **Proposed** are defaults Joe can change; the questions at the end must be answered before building. It follows the closure rule: specify, build, then test against "Done when".
+**Status: draft for Joe's decisions (October 9, 2026). Built so far, the parts that don't depend on the questions (migration 0063): account XP and levels from watching and chat with the daily caps, the Scout bonus, the player card's level and XP bar, the level on the user card, and "Scouted by N viewers" in Studio. Channel loyalty ranks (shown when hovering a name in chat) and the chat rank gate followed (migration 0064). Daily orders followed with XP rewards only (migration 0065; 40 XP for a Common order, weekly milestones 100/200/300 XP, both Proposed). Level-up frames, faction titles and Engagement Valor for orders followed on October 10 (see Decisions).** Numbers marked **Proposed** are defaults Joe can change; the questions at the end must be answered before building. It follows the closure rule: specify, build, then test against "Done when".
 
 The platform plan places Progression in Phase 2, "after all nine modules": account levels and XP, faction rank titles, daily orders (small quests that pay Valor, XP or influence), and the Scout bonus for early viewers of new streams. [DESIGN.md](DESIGN.md) already reserves the player card's level badge and XP bar and a Daily orders panel, [DEVELOPER_PLATFORM.md](DEVELOPER_PLATFORM.md) adds a chat rank gate on channel loyalty, and [SUPPORT.md](SUPPORT.md) puts Lights and Shine Moments here.
 
@@ -58,6 +58,13 @@ Lights and Shine Moments ([SUPPORT.md](SUPPORT.md) "Shine", Question 4), achieve
 3. The Scout bonus pays only within its rules and can't be farmed between friends.
 4. Faction titles and channel loyalty show where described, and the chat rank gate works with moderators and the owner exempt.
 5. Nothing in Progression changes MAGNet, rotation, faction influence or money balances except where Questions 1 and 3 say so.
+
+## Decisions (October 10, 2026) and as built (migration 0081)
+
+- **Level-up reward (Q1): a cosmetic every 10 levels.** The level badge gets a new frame at levels 10, 20 … 100 (`progression::frame`, CSS borders only). It's derived from the level, so a level-up and its reward can't drift apart. Choosing among unlocked frames, and more cosmetics, come with achievements and message cosmetics (Phase 3).
+- **Faction rank titles (Q2): the 22-rank ladder from the main S.V.E.R Discord** (Initiate … Overlord, Novice … Sovereign, Spark … Inferno; Private … Commander without a faction), spread evenly over levels 1–100 (levels 1, 6, 10, 15 … 95, 100). Shown on the player card and the user card (chat hover). Switching faction keeps the level and shows the new faction's name for it.
+- **Daily orders (Q3): XP plus Engagement Valor**, 10 / 15 / 20 / 30 / 50 by rarity, in the channel of the viewer's latest playback or chat that day (where they were when it finished; never their own channel or one that banned them). An order finished with no channel activity pays XP only. The amount and channel are kept on the order (`daily_orders.ev`, `ev_channel`); the sidebar shows them.
+- Q4 (Lights and Shine) remains open.
 
 ## Questions for Joe
 

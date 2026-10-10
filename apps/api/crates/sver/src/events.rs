@@ -55,7 +55,7 @@ const PRIVATE: [&str; 6] = [
 const MAX_TOPICS: usize = 200;
 const MAX_CONNECTIONS: usize = 10;
 /// The hub channel the drain publishes on.
-const HUB: &str = "events";
+pub(crate) const HUB: &str = "events";
 type Row = (i64, String, Value, chrono::DateTime<chrono::Utc>);
 type Person = (String, Vec<String>);
 

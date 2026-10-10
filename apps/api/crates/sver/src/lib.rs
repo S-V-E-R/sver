@@ -43,6 +43,7 @@ pub mod money;
 pub mod oauth;
 pub mod open_data;
 pub mod outside_emotes;
+pub mod overlays;
 pub mod parts;
 pub mod payouts;
 pub mod playback;
@@ -457,6 +458,7 @@ pub fn router(app: App) -> Router {
         .merge(money::routes())
         .merge(outside_emotes::routes())
         .merge(discord::routes())
+        .merge(overlays::routes())
         .merge(alerts::routes())
         .merge(raids::routes())
         .merge(discovery::routes())
