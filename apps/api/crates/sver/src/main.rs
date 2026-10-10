@@ -125,6 +125,16 @@ async fn main() -> Result<(), String> {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     });
+    // Raven's Eye keeps each finished day's platform numbers (docs/ADMIN.md).
+    let analytics = app.clone();
+    tokio::spawn(async move {
+        loop {
+            if sver::ravens_eye::tick(&analytics).await.is_err() {
+                eprintln!("ravens_eye_event=rollup outcome=retry");
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+        }
+    });
     // The Discord bot (go-live posts, role sync) waits on Discord; keep it off the shared loops.
     let discord = app.clone();
     tokio::spawn(async move {
