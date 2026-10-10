@@ -20,7 +20,9 @@ use sqlx::PgConnection;
 /// How far back the first run fills in (chat counts only exist for the last 7 days).
 const BACKFILL_DAYS: u64 = 90;
 
-/// One UTC day's numbers. Watch hours and the peak come from the viewer-integrity snapshots
+/// One UTC day's numbers. Broadcast hours, streamers and categories count the part of each
+/// broadcast inside the day (24/7 channels included); `broadcasts` counts the ones started that day.
+/// Watch hours and the peak come from the viewer-integrity snapshots
 /// (about one a minute per live broadcast, Counted + Trusted sessions only).
 pub async fn compute(db: &mut PgConnection, day: NaiveDate) -> Res<Value> {
     Ok(sqlx::query_scalar(
@@ -34,8 +36,8 @@ pub async fn compute(db: &mut PgConnection, day: NaiveDate) -> Res<Value> {
             'follows', (SELECT count(*) FROM follows, w WHERE created_at>=a AND created_at<b),
             'faction_joins', (SELECT coalesce(jsonb_object_agg(faction,n),'{}') FROM (SELECT faction,count(*) n FROM faction_members, w WHERE joined_at>=a AND joined_at<b GROUP BY faction) f),
             'broadcasts', (SELECT count(*) FROM broadcasts, w WHERE started_at>=a AND started_at<b),
-            'streamers', (SELECT count(DISTINCT owner_id) FROM broadcasts, w WHERE started_at>=a AND started_at<b),
-            'broadcast_hours', (SELECT round(coalesce(sum(extract(epoch FROM coalesce(ended_at,now())-started_at)),0)::numeric/3600,1) FROM broadcasts, w WHERE started_at>=a AND started_at<b),
+            'streamers', (SELECT count(DISTINCT owner_id) FROM broadcasts, w WHERE started_at<b AND coalesce(ended_at,now())>a),
+            'broadcast_hours', (SELECT round(coalesce(sum(extract(epoch FROM least(coalesce(ended_at,now()),b)-greatest(started_at,a))),0)::numeric/3600,1) FROM broadcasts, w WHERE started_at<b AND coalesce(ended_at,now())>a),
             'watch_hours', (SELECT round(coalesce(sum(counted+trusted),0)::numeric/60,1) FROM integrity_snapshots, w WHERE taken_at>=a AND taken_at<b),
             'peak_viewers', (SELECT coalesce(max(n),0) FROM (SELECT sum(counted+trusted) n FROM integrity_snapshots, w WHERE taken_at>=a AND taken_at<b GROUP BY date_trunc('minute',taken_at)) p),
             'money', (SELECT coalesce(jsonb_object_agg(kind,jsonb_build_object('count',c,'valor',v,'usd_cents',u)),'{}') FROM (
@@ -48,10 +50,10 @@ pub async fn compute(db: &mut PgConnection, day: NaiveDate) -> Res<Value> {
                 SELECT u.username,sum(s.counted+s.trusted) minutes FROM integrity_snapshots s JOIN broadcasts b ON b.id=s.broadcast_id JOIN users u ON u.id=b.owner_id, w
                 WHERE s.taken_at>=a AND s.taken_at<b GROUP BY u.username ORDER BY 2 DESC LIMIT 10) t),
             'top_categories', (SELECT coalesce(jsonb_agg(jsonb_build_object('category',category,'broadcast_hours',round(seconds::numeric/3600,1)) ORDER BY seconds DESC),'[]') FROM (
-                SELECT coalesce(v.category,c.name,'Uncategorized') category,sum(extract(epoch FROM coalesce(b.ended_at,now())-b.started_at)) seconds
+                SELECT coalesce(v.category,c.name,'Uncategorized') category,sum(extract(epoch FROM least(coalesce(b.ended_at,now()),w.b)-greatest(b.started_at,w.a))) seconds
                 FROM broadcasts b LEFT JOIN videos v ON v.broadcast_id=b.id AND v.kind='VOD'
                 LEFT JOIN stream_settings st ON st.owner_id=b.owner_id LEFT JOIN stream_categories c ON c.id=st.category_id, w
-                WHERE b.started_at>=a AND b.started_at<b GROUP BY 1 ORDER BY 2 DESC LIMIT 10) k)
+                WHERE b.started_at<w.b AND coalesce(b.ended_at,now())>w.a GROUP BY 1 ORDER BY 2 DESC LIMIT 10) k)
         )",
     )
     .bind(day)
